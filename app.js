@@ -4,7 +4,7 @@
 
 import { MongoClient } from "mongodb";
 import { ulid } from "ulid";
-import express from "express";
+import express, { request } from "express";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -22,14 +22,11 @@ async function connectToDatabase(op = "open") {
 
   if (op === "open") {
     if (!dbClient) {
-      dbClient = new MongoClient(url, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      });
+      dbClient = new MongoClient(url);
     }
 
     try {
-      if (!dbClient.isConnected()) {
+      if (!dbClient) {
         await dbClient.connect();
         console.log("Connected successfully to MongoDB");
       }
@@ -40,10 +37,10 @@ async function connectToDatabase(op = "open") {
       throw error;
     }
   } else if (op === "close") {
-    if (dbClient && dbClient.isConnected()) {
+    if (dbClient) {
       try {
         await dbClient.close();
-        console.log("Connection to MongoDB closed.");
+        dbClient = null;
       } catch (error) {
         console.error("Error closing MongoDB connection:", error);
         throw error;
@@ -90,8 +87,8 @@ async function takeApplicationBackup(server_id, app_id, api_key, email) {
       backupStatus = Number(backupStatusData.is_completed);
 
       if (backupStatus === 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
         console.log("Polling backup status...");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
@@ -149,11 +146,34 @@ async function triggerGitPull(
   }
 }
 
-app.get("/", (req, res) => {
+async function logRequest(req, db, type) {
+  const log = db.collection("cw-logs");
+  await log.insertOne({
+    ...req.body,
+    ip: req.ip,
+    hostname: req.hostname,
+    path: req.path,
+    timestamp: new Date(),
+    request_type: type,
+  });
+}
+app.get("/", async (req, res) => {
+  let db;
+  try {
+    db = await connectToDatabase("open");
+    await logRequest(req, db, "visit");
+  } catch (error) {
+    console.error("Error logging visit:", error);
+    return res.status(500).send("Internal Server Error.");
+  } finally {
+    if (db) {
+      await connectToDatabase("close");
+    }
+  }
   res.send("Hello World! The API for managing Cloudways webhooks is running.");
 });
 
-app.post("/webhook/new", async (req, res) => {
+app.post("/webhook/add", async (req, res) => {
   if (req.body.secret_key !== secret_key) {
     return res.status(401).send("Unauthorized");
   }
@@ -166,11 +186,8 @@ app.post("/webhook/new", async (req, res) => {
     console.log("Received payload:", payload);
 
     const collection = db.collection("cw-webhooks");
-    const log = db.collection("cw-logs");
-
     await collection.insertOne(payload);
-    await log.insertOne({ ...payload, timestamp: new Date() });
-
+    await logRequest(req, db, "add webhook");
     res.status(200).send("New webhook received and added to the database");
   } catch (error) {
     console.error("Error processing webhook:", error);
@@ -195,6 +212,7 @@ app.put("/webhook/:id", async (req, res) => {
     let payload = req.body;
     const collection = db.collection("cw-webhooks");
     await collection.updateOne({ id: id }, { $set: payload });
+    await logRequest(req, db, "update webhook");
     res.status(200).send("Webhook updated successfully.");
   } catch (error) {
     console.error("Error updating webhook:", error);
@@ -218,6 +236,7 @@ app.delete("/webhook/:id", async (req, res) => {
     let id = req.params.id;
     const collection = db.collection("cw-webhooks");
     await collection.deleteOne({ id: id });
+    await logRequest(req, db, "delete webhook");
     res.status(200).send("Webhook deleted successfully.");
   } catch (error) {
     console.error("Error deleting webhook:", error);
@@ -236,23 +255,32 @@ app.post("/webhook/:id", async (req, res) => {
     const id = req.params.id;
     const collection = db.collection("cw-webhooks");
     const record = await collection.findOne({ id: id });
-
     if (!record) {
       return res.status(404).send("Record not found");
     }
+    await takeApplicationBackup(
+      record.server_id,
+      record.app_id,
+      record.api_key,
+      record.email
+    );
 
-    await takeApplicationBackup(record.server_id, record.app_id, record.api_key, record.email);
-
+    let result;
     switch (record.type) {
       case "deploy":
-        return await handleDeploy(record, res);
+        result = await handleDeploy(record, res);
+        break;
       case "copytolive":
-        return await handleCopyToLive(record, res);
+        result = await handleCopyToLive(record, res);
+        break;
       case "copytostaging":
-        return await handleCopyToStaging(record, res);
+        result = await handleCopyToStaging(record, res);
+        break;
       default:
         return res.status(400).send("Invalid action type");
     }
+    await logRequest(req, db, `trigger ${record.type} action`);
+    return res.status(200).send(result);
   } catch (error) {
     console.error("Error processing action:", error);
     res.status(500).send("Internal Server Error.");
@@ -265,8 +293,12 @@ app.post("/webhook/:id", async (req, res) => {
 
 async function handleDeploy(record, res) {
   try {
-    const deploy = await triggerGitPull(record.server_id, record.app_id, record.branch_name, record.deploy_path);
-    res.status(200).send(deploy);
+    const deploy = await triggerGitPull(
+      record.server_id,
+      record.app_id,
+      record.branch_name,
+      record.deploy_path
+    );
   } catch (error) {
     console.error("Error during deploy:", error);
     res.status(500).send("Error during deploy");
@@ -275,7 +307,12 @@ async function handleDeploy(record, res) {
 
 async function handleCopyToLive(record, res) {
   try {
-    const copytolive = await triggerCopyToLive(record.server_id, record.app_id, record.branch_name, record.deploy_path);
+    const copytolive = await triggerCopyToLive(
+      record.server_id,
+      record.app_id,
+      record.branch_name,
+      record.deploy_path
+    );
     res.status(200).send(copytolive);
   } catch (error) {
     console.error("Error during copy to live:", error);
@@ -285,7 +322,12 @@ async function handleCopyToLive(record, res) {
 
 async function handleCopyToStaging(record, res) {
   try {
-    const copytostaging = await triggerCopyToStaging(record.server_id, record.app_id, record.branch_name, record.deploy_path);
+    const copytostaging = await triggerCopyToStaging(
+      record.server_id,
+      record.app_id,
+      record.branch_name,
+      record.deploy_path
+    );
     res.status(200).send(copytostaging);
   } catch (error) {
     console.error("Error during copy to staging:", error);
