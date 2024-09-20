@@ -1,13 +1,6 @@
 environment:
   PORT: 3000
   DATABASE_URL: ${DATABASE_URL}
-functions:
-- github:
-    branch: main
-    deploy_on_push: true
-    repo: gokepelemo/cw-webhook-listener
-  name: webhook-listener-function
-  source_dir: /
 name: webhook-listener
 databases:
 - name: db-mongodb-nyc1-94101
