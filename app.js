@@ -1,6 +1,6 @@
 // TODO: Implement triggerCopyToLive and triggerCopyToStaging functions
 // TODO: Implement data validation for incoming webhooks
-// TODO: Send an email everytime the webhook fails and deactivate the webhook
+// TODO: Send an email everytime a webhook fails and deactivate the webhook after 3 times
 
 import { MongoClient } from "mongodb";
 import { ulid } from "ulid";
