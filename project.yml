@@ -1,10 +1,6 @@
-envs:
-- key: PORT
-  scope: RUN_AND_BUILD_TIME
-  value: "3000"
-- key: DATABASE_URL
-  scope: RUN_AND_BUILD_TIME
-  value: mongodb+srv://doadmin:6K27fPmL4u3c91o5@db-mongodb-nyc1-94101-a62cb87b.mongo.ondigitalocean.com/cw-webhook-listener?tls=true&authSource=admin&replicaSet=db-mongodb-nyc1-94101
+environment:
+  PORT: 3000
+  DATABASE_URL: ${DATABASE_URL}
 features:
 - buildpack-stack=ubuntu-22
 functions:
