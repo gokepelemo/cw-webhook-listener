@@ -1,7 +1,6 @@
 environment:
   PORT: 3000
   DATABASE_URL: ${DATABASE_URL}
-name: webhook-listener
 databases:
 - name: db-mongodb-nyc1-94101
   engine: mongodb
