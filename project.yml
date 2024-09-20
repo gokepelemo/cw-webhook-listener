@@ -1,3 +1,51 @@
-environment:
-  DATABASE_URL: ${db-mongodb-nyc1-94101.DATABASE_URL}
-  PORT: ${PORT}
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED
+envs:
+- key: PORT
+  scope: RUN_AND_BUILD_TIME
+  value: "3000"
+- key: DATABASE_URL
+  scope: RUN_AND_BUILD_TIME
+  value: mongodb+srv://doadmin:6K27fPmL4u3c91o5@db-mongodb-nyc1-94101-a62cb87b.mongo.ondigitalocean.com/cw-webhook-listener?tls=true&authSource=admin&replicaSet=db-mongodb-nyc1-94101
+features:
+- buildpack-stack=ubuntu-22
+functions:
+- github:
+    branch: main
+    deploy_on_push: true
+    repo: gokepelemo/cw-webhook-listener
+  name: webhook-listener-function
+  source_dir: /
+ingress:
+  rules:
+  - component:
+      name: cw-webhook-listener
+    match:
+      path:
+        prefix: /
+  - component:
+      name: webhook-listener-function
+    match:
+      path:
+        prefix: /cw-webhook-listener2
+name: webhook-listener
+region: nyc
+services:
+- environment_slug: node-js
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: gokepelemo/cw-webhook-listener
+  http_port: 3000
+  instance_count: 2
+  instance_size_slug: apps-s-1vcpu-1gb
+  name: cw-webhook-listener
+  run_command: npm start
+  source_dir: /
+databases:
+- name: db-mongodb-nyc1-94101
+  engine: mongodb
+  version: 4.4
+  db_name: cw-webhook-listener
+  db_user: doadmin
