@@ -1,9 +1,3 @@
 environment:
   PORT: 3000
   DATABASE_URL: ${DATABASE_URL}
-databases:
-- name: db-mongodb-nyc1-94101
-  engine: mongodb
-  version: 4.4
-  db_name: cw-webhook-listener
-  db_user: doadmin
