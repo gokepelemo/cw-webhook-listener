@@ -1,3 +1,4 @@
 environment:
   PORT: ${PORT}
   DATABASE_URL: ${DATABASE_URL}
+  CA_CERT: ${CA_CERT}
