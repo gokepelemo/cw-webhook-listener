@@ -4,7 +4,7 @@
 
 import { MongoClient } from "mongodb";
 import { ulid } from "ulid";
-import express, { request } from "express";
+import express from "express";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -12,7 +12,7 @@ dotenv.config();
 let dbClient;
 const app = express();
 const port = process.env.PORT || 3000;
-const secret_key = process.env.SECRET_KEY;
+const secretKey = process.env.SECRET_KEY;
 
 app.use(express.json());
 
@@ -52,12 +52,12 @@ async function connectToDatabase(op = "open") {
 async function takeApplicationBackup(server_id, app_id, api_key, email) {
   const url = `https://api.cloudways.com/api/v1/app/manage/takeBackup?server_id=${server_id}&app_id=${app_id}`;
   try {
-    const access_token = generateAccessToken(email, api_key);
+    const accessToken = generateAccessToken(email, api_key);
     const takeBackupResponse = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
     });
 
@@ -75,7 +75,7 @@ async function takeApplicationBackup(server_id, app_id, api_key, email) {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -91,7 +91,6 @@ async function takeApplicationBackup(server_id, app_id, api_key, email) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-
     return backupStatusPoll.json();
   } catch (error) {
     console.error("Error:", error);
@@ -102,13 +101,15 @@ async function takeApplicationBackup(server_id, app_id, api_key, email) {
 async function generateAccessToken(email, api_key) {
   const url = `https://api.cloudways.com/api/v1/oauth/access_token?email=${email}&api_key=${api_key}`;
   try {
-    const access_token = await fetch(url, {
+    const accessToken = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "email": email,
+        "api_key": api_key,
       },
     });
-    return access_token;
+    return accessToken;
   } catch (error) {
     console.error("Error:", error);
     throw error;
@@ -125,12 +126,12 @@ async function triggerGitPull(
 ) {
   const url = `https://api.cloudways.com/api/v1/git/pull?server_id=${server_id}&app_id=${app_id}&branch_name=${branch_name}&deploy_path=${deploy_path}`;
   try {
-    const access_token = generateAccessToken(email, api_key);
+    const accessToken = generateAccessToken(email, api_key);
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
     });
 
@@ -150,7 +151,6 @@ async function logRequest(req, db, type) {
   const log = db.collection("cw-logs");
   await log.insertOne({
     ...req.body,
-    ip: req.ip,
     hostname: req.hostname,
     path: req.path,
     timestamp: new Date(),
@@ -174,7 +174,7 @@ app.get("/", async (req, res) => {
 });
 
 app.post("/webhook/add", async (req, res) => {
-  if (req.body.secret_key !== secret_key) {
+  if (req.body.secret_key !== secretKey) {
     return res.status(401).send("Unauthorized");
   }
 
@@ -201,7 +201,7 @@ app.post("/webhook/add", async (req, res) => {
 
 // TODO: Add ownership validation to prevent unauthorized updates
 app.put("/webhook/:id", async (req, res) => {
-  if (req.body.secret_key != secret_key) {
+  if (req.body.secret_key != secretKey) {
     return res.status(401).send("Unauthorized");
   }
 
@@ -226,7 +226,7 @@ app.put("/webhook/:id", async (req, res) => {
 
 // TODO: Add ownership validation to prevent unauthorized deletions
 app.delete("/webhook/:id", async (req, res) => {
-  if (req.body.secret_key != secret_key) {
+  if (req.body.secret_key != secretKey) {
     return res.status(401).send("Unauthorized");
   }
 
@@ -249,14 +249,14 @@ app.delete("/webhook/:id", async (req, res) => {
 });
 
 app.post("/webhook/:id", async (req, res) => {
-  let db;
+  let db, result;
   try {
     db = await connectToDatabase("open");
     const id = req.params.id;
     const collection = db.collection("cw-webhooks");
     const record = await collection.findOne({ id: id });
     if (!record) {
-      return res.status(404).send("Record not found");
+      return res.status(404).send("Webhook not found");
     }
     await takeApplicationBackup(
       record.server_id,
@@ -265,7 +265,6 @@ app.post("/webhook/:id", async (req, res) => {
       record.email
     );
 
-    let result;
     switch (record.type) {
       case "deploy":
         result = await handleDeploy(record, res);
