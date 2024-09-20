@@ -1,8 +1,6 @@
 environment:
   PORT: 3000
   DATABASE_URL: ${DATABASE_URL}
-features:
-- buildpack-stack=ubuntu-22
 functions:
 - github:
     branch: main
@@ -10,32 +8,7 @@ functions:
     repo: gokepelemo/cw-webhook-listener
   name: webhook-listener-function
   source_dir: /
-ingress:
-  rules:
-  - component:
-      name: cw-webhook-listener
-    match:
-      path:
-        prefix: /
-  - component:
-      name: webhook-listener-function
-    match:
-      path:
-        prefix: /cw-webhook-listener2
 name: webhook-listener
-region: nyc
-services:
-- environment_slug: node-js
-  github:
-    branch: main
-    deploy_on_push: true
-    repo: gokepelemo/cw-webhook-listener
-  http_port: 3000
-  instance_count: 2
-  instance_size_slug: apps-s-1vcpu-1gb
-  name: cw-webhook-listener
-  run_command: npm start
-  source_dir: /
 databases:
 - name: db-mongodb-nyc1-94101
   engine: mongodb
