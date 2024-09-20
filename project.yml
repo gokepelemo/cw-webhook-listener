@@ -1,8 +1,0 @@
-environment:
-  ENV: production
-packages:
-  - name: webhook-listener
-    environment:
-      ENV: production
-    functions:
-      - name: cw-webhook-listener
