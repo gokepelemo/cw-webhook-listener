@@ -150,7 +150,7 @@ async function logRequest(req, db, type) {
   const log = db.collection("cw-logs");
   await log.insertOne({
     ...req.body,
-    ip: req.ips,
+    ip: req.ip,
     hostname: req.hostname,
     path: req.path,
     timestamp: new Date(),
