@@ -170,7 +170,7 @@ app.get("/", async (req, res) => {
       await connectToDatabase("close");
     }
   }
-  res.send("Hello World! The API for managing Cloudways webhooks is running.");
+  res.send("Hello World!");
 });
 
 app.post("/webhook/add", async (req, res) => {
