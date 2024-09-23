@@ -1,4 +1,3 @@
-// TODO: Implement triggerCopyToLive and triggerCopyToStaging functions
 // TODO: Implement data validation for incoming webhooks
 // TODO: Send an email everytime a webhook fails and deactivate the webhook after 3 times
 
@@ -9,6 +8,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// Variables
 let dbClient;
 const app = express();
 const port = process.env.PORT || 3000;
@@ -16,6 +16,7 @@ const secretKey = process.env.SECRET_KEY;
 
 app.use(express.json());
 
+// Utility functions
 async function connectToDatabase(op = "open") {
   const url = process.env.DATABASE_URL;
   const dbName = "cw-webhook-listener";
@@ -49,15 +50,16 @@ async function connectToDatabase(op = "open") {
   }
 }
 
-async function takeApplicationBackup(server_id, app_id, api_key, email) {
-  const url = `https://api.cloudways.com/api/v1/app/manage/takeBackup?server_id=${server_id}&app_id=${app_id}`;
+async function takeApplicationBackup(serverId, appId, apiKey, email) {
+  const url = `https://api.cloudways.com/api/v1/app/manage/takeBackup?server_id=${serverId}&app_id=${appId}`;
   try {
-    const accessToken = generateAccessToken(email, api_key);
+    const accessTokenResponse = await generateAccessToken(email, apiKey);
+    const accessToken = await accessTokenResponse.json();
     const takeBackupResponse = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken.access_token}`, // Use the actual token value
       },
     });
 
@@ -69,13 +71,14 @@ async function takeApplicationBackup(server_id, app_id, api_key, email) {
     const backupStatusUrl = `https://api.cloudways.com/api/v1/operation/${backupDetails.operation_id}`;
     let backupStatus = 0;
     let backupStatusPoll;
+    let backupStatusData;
 
     while (backupStatus === 0) {
       backupStatusPoll = await fetch(backupStatusUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken.access_token}`,
         },
       });
 
@@ -83,30 +86,31 @@ async function takeApplicationBackup(server_id, app_id, api_key, email) {
         throw new Error(`HTTP error! status: ${backupStatusPoll.status}`);
       }
 
-      const backupStatusData = await backupStatusPoll.json();
+      backupStatusData = await backupStatusPoll.json();
       backupStatus = Number(backupStatusData.is_completed);
 
       if (backupStatus === 0) {
         console.log("Polling backup status...");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
       }
     }
-    return backupStatusPoll.json();
+    return backupStatusData;
   } catch (error) {
     console.error("Error:", error);
     throw error;
   }
 }
 
-async function generateAccessToken(email, api_key) {
-  const url = `https://api.cloudways.com/api/v1/oauth/access_token?email=${email}&api_key=${api_key}`;
+async function generateAccessToken(email, apiKey) {
+  const url = `https://api.cloudways.com/api/v1/oauth/access_token?email=${email}&api_key=${apiKey}`;
+  let accessToken;
   try {
-    const accessToken = await fetch(url, {
+    accessToken = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "email": email,
-        "api_key": api_key,
+        email: email,
+        api_key: apiKey,
       },
     });
     return accessToken;
@@ -117,21 +121,22 @@ async function generateAccessToken(email, api_key) {
 }
 
 async function triggerGitPull(
-  server_id,
-  app_id,
-  branch_name,
-  deploy_path,
-  api_key,
-  email
+  serverId,
+  appId,
+  branchName,
+  deployPath,
+  email,
+  apiKey
 ) {
-  const url = `https://api.cloudways.com/api/v1/git/pull?server_id=${server_id}&app_id=${app_id}&branch_name=${branch_name}&deploy_path=${deploy_path}`;
+  const url = `https://api.cloudways.com/api/v1/git/pull?server_id=${serverId}&app_id=${appId}&branch_name=${branchName}&deploy_path=${deployPath}`;
   try {
-    const accessToken = generateAccessToken(email, api_key);
+    const accessTokenResponse = await generateAccessToken(email, apiKey);
+    const accessToken = await accessTokenResponse.json();
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${accessToken.access_token}`,
       },
     });
 
@@ -144,6 +149,94 @@ async function triggerGitPull(
   } catch (error) {
     console.error("Error:", error);
     throw error;
+  }
+}
+
+async function triggerSync(
+  serverId,
+  appId,
+  stagingServerId,
+  stagingAppId,
+  email,
+  apiKey,
+  action
+) {
+  const url = `https://api.cloudways.com/api/v1/sync/app?server_id=${serverId}&app_id=${appId}&source_server_id=${stagingServerId}&source_app_id=${stagingAppId}&action=${action}`;
+  try {
+    const accessTokenResponse = await generateAccessToken(email, apiKey);
+    const accessToken = await accessTokenResponse.json();
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error during sync operation:", error);
+    throw error;
+  }
+}
+
+async function triggerCopyToStaging(
+  serverId,
+  appId,
+  stagingServerId,
+  stagingAppId,
+  email,
+  apiKey
+) {
+  return triggerSync(
+    serverId,
+    appId,
+    stagingServerId,
+    stagingAppId,
+    email,
+    apiKey,
+    "pull"
+  );
+}
+
+async function triggerCopyToLive(
+  serverId,
+  appId,
+  stagingServerId,
+  stagingAppId,
+  email,
+  apiKey,
+  backup
+) {
+  return triggerSync(
+    serverId,
+    appId,
+    stagingServerId,
+    stagingAppId,
+    email,
+    apiKey,
+    "push",
+    backup
+  );
+}
+
+async function deleteWebhook(webhookId) {
+  let db;
+  const collection = db.collection("cw-webhooks");
+  try {
+    db = await connectToDatabase("open");
+    let webhook = await collection.deleteOne({ webhookId: webhookId });
+    return webhook;
+  } catch (error) {
+    console.error("Error deleting webhook:", error);
+    throw error;
+  } finally {
+    if (db) {
+      await connectToDatabase("close");
+    }
   }
 }
 
@@ -174,21 +267,19 @@ app.get("/", async (req, res) => {
 });
 
 app.post("/webhook/add", async (req, res) => {
-  if (req.body.secret_key !== secretKey) {
+  if (req.body.secretKey !== secretKey) {
     return res.status(401).send("Unauthorized");
   }
-
   let db;
+  delete req.body.secretKey;
   try {
     db = await connectToDatabase("open");
-    let payload = req.body;
-    payload.id = ulid();
-    console.log("Received payload:", payload);
-
+    let payload = { ...req.body, webhookId: ulid().toLowerCase() };
     const collection = db.collection("cw-webhooks");
-    await collection.insertOne(payload);
+    const result = await collection.insertOne(payload);
+    const newWebhook = await collection.findOne({ _id: result.insertedId });
+    res.status(200).json(newWebhook);
     await logRequest(req, db, "add webhook");
-    res.status(200).send("New webhook received and added to the database");
   } catch (error) {
     console.error("Error processing webhook:", error);
     res.status(500).send("Internal Server Error.");
@@ -200,18 +291,19 @@ app.post("/webhook/add", async (req, res) => {
 });
 
 // TODO: Add ownership validation to prevent unauthorized updates
-app.put("/webhook/:id", async (req, res) => {
-  if (req.body.secret_key != secretKey) {
+app.put("/webhook/:webhookId", async (req, res) => {
+  if (req.body.secretKey != secretKey) {
     return res.status(401).send("Unauthorized");
   }
 
   let db;
+  delete req.body.secretKey;
   try {
     db = await connectToDatabase();
-    let id = req.params.id;
+    let webhookId = req.params.webhookId;
     let payload = req.body;
     const collection = db.collection("cw-webhooks");
-    await collection.updateOne({ id: id }, { $set: payload });
+    await collection.updateOne({ webhookId: webhookId }, { $set: payload });
     await logRequest(req, db, "update webhook");
     res.status(200).send("Webhook updated successfully.");
   } catch (error) {
@@ -226,58 +318,77 @@ app.put("/webhook/:id", async (req, res) => {
 
 // TODO: Add ownership validation to prevent unauthorized deletions
 app.delete("/webhook/:id", async (req, res) => {
-  if (req.body.secret_key != secretKey) {
+  if (req.body.secretKey != secretKey) {
     return res.status(401).send("Unauthorized");
   }
-
-  let db;
-  try {
-    db = await connectToDatabase();
-    let id = req.params.id;
-    const collection = db.collection("cw-webhooks");
-    await collection.deleteOne({ id: id });
-    await logRequest(req, db, "delete webhook");
-    res.status(200).send("Webhook deleted successfully.");
-  } catch (error) {
-    console.error("Error deleting webhook:", error);
-    res.status(500).send("Internal Server Error");
-  } finally {
-    if (db) {
-      await connectToDatabase("close");
-    }
-  }
+  return deleteWebhook(req.params.id);
 });
 
-app.post("/webhook/:id", async (req, res) => {
+// Triggering the webhook does not require a secret key
+app.post("/webhook/:webhookId", async (req, res) => {
   let db, result;
   try {
     db = await connectToDatabase("open");
-    const id = req.params.id;
+    const webhookId = req.params.webhookId;
     const collection = db.collection("cw-webhooks");
-    const record = await collection.findOne({ id: id });
+    const record = await collection.findOne({ webhookId: webhookId });
     if (!record) {
       return res.status(404).send("Webhook not found");
     }
-    await takeApplicationBackup(
-      record.server_id,
-      record.app_id,
-      record.api_key,
-      record.email
-    );
 
     switch (record.type) {
       case "deploy":
+        if (record.backup) {
+          try {
+            let newBackup = await takeApplicationBackup(
+              record.serverId,
+              record.appId,
+              record.apiKey,
+              record.email
+            );
+          } catch (error) {
+            console.error("Error taking backup:", error);
+            return res.status(500).send("Error taking backup");
+          }
+        }
         result = await handleDeploy(record, res);
         break;
       case "copytolive":
+        if (record.backup) {
+          try {
+            let newBackup = await takeApplicationBackup(
+              record.serverId,
+              record.appId,
+              record.apiKey,
+              record.email
+            );
+          } catch (error) {
+            console.error("Error taking backup:", error);
+            return res.status(500).send("Error taking backup");
+          }
+        }
         result = await handleCopyToLive(record, res);
         break;
       case "copytostaging":
+        if (record.backup) {
+          try {
+            let newBackup = await takeApplicationBackup(
+              record.serverId,
+              record.appId,
+              record.apiKey,
+              record.email
+            );
+          } catch (error) {
+            console.error("Error taking backup:", error);
+            return res.status(500).send("Error taking backup");
+          }
+        }
         result = await handleCopyToStaging(record, res);
         break;
       default:
         return res.status(400).send("Invalid action type");
     }
+  
     await logRequest(req, db, `trigger ${record.type} action`);
     return res.status(200).send(result);
   } catch (error) {
@@ -293,11 +404,14 @@ app.post("/webhook/:id", async (req, res) => {
 async function handleDeploy(record, res) {
   try {
     const deploy = await triggerGitPull(
-      record.server_id,
-      record.app_id,
-      record.branch_name,
-      record.deploy_path
+      record.serverId,
+      record.appId,
+      record.branchName,
+      record.deployPath,
+      record.email,
+      record.apiKey
     );
+    res.status(200).send(deploy);
   } catch (error) {
     console.error("Error during deploy:", error);
     res.status(500).send("Error during deploy");
@@ -306,13 +420,15 @@ async function handleDeploy(record, res) {
 
 async function handleCopyToLive(record, res) {
   try {
-    const copytolive = await triggerCopyToLive(
-      record.server_id,
-      record.app_id,
-      record.branch_name,
-      record.deploy_path
+    const copyToLive = await triggerCopyToLive(
+      record.serverId,
+      record.appId,
+      record.stagingServerId,
+      record.stagingAppId,
+      record.email,
+      record.apiKey
     );
-    res.status(200).send(copytolive);
+    res.status(200).send(copyToLive);
   } catch (error) {
     console.error("Error during copy to live:", error);
     res.status(500).send("Error during copy to live");
@@ -321,13 +437,15 @@ async function handleCopyToLive(record, res) {
 
 async function handleCopyToStaging(record, res) {
   try {
-    const copytostaging = await triggerCopyToStaging(
-      record.server_id,
-      record.app_id,
-      record.branch_name,
-      record.deploy_path
+    const copyToStaging = await triggerCopyToStaging(
+      record.serverId,
+      record.appId,
+      record.stagingServerId,
+      record.stagingAppId,
+      record.email,
+      record.apiKey
     );
-    res.status(200).send(copytostaging);
+    res.status(200).send(copyToStaging);
   } catch (error) {
     console.error("Error during copy to staging:", error);
     res.status(500).send("Error during copy to staging");
