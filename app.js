@@ -240,6 +240,23 @@ async function deleteWebhook(webhookId) {
   }
 }
 
+async function getWebhook(webhookId) {
+  let db;
+  db = await connectToDatabase("open");
+  const collection = db.collection("cw-webhooks");
+  try {
+    let webhook = await collection.findOne({ webhookId: webhookId });
+    return webhook ? webhook : "Webhook not found";
+  } catch (error) {
+    console.error("Error fetching webhook:", error);
+    throw error;
+  } finally {
+    if (db) {
+      await connectToDatabase("close");
+    }
+  }
+}
+
 async function logRequest(req, db, type) {
   const log = db.collection("cw-logs");
   await log.insertOne({
@@ -317,11 +334,27 @@ app.put("/webhook/:webhookId", async (req, res) => {
 });
 
 // TODO: Add ownership validation to prevent unauthorized deletions
-app.delete("/webhook/:id", async (req, res) => {
+app.delete("/webhook/:webhookId", async (req, res) => {
   if (req.body.secretKey != secretKey) {
     return res.status(401).send("Unauthorized");
   }
   return deleteWebhook(req.params.id);
+});
+
+app.post("/webhook/:webhookId/details", async (req, res) => {
+  if (req.body.secretKey != secretKey) {
+    return res.status(401).send("Unauthorized");
+  }
+  try {
+    const webhook = await getWebhook(req.params.webhookId);
+    if (webhook === "Webhook not found") {
+      return res.status(404).send("Webhook not found");
+    }
+    return res.status(200).send(webhook);
+  } catch (error) {
+    console.error("Error fetching webhook details:", error);
+    return res.status(500).send("Internal Server Error.");
+  }
 });
 
 // Triggering the webhook does not require a secret key
