@@ -151,7 +151,7 @@ async function generateAccessToken(email, plainApiKey) {
       headers: {
         "Content-Type": "application/json",
         email: email,
-        api_key: apiKey,
+        api_key: plainApiKey,
       },
     });
     return accessToken;
@@ -268,13 +268,20 @@ async function triggerCopyToLive(
   );
 }
 
-async function deleteWebhook(webhookId) {
+async function deleteWebhook(webhookId, req) {
   let db;
-  const collection = db.collection("cw-webhooks");
   try {
     db = await connectToDatabase("open");
-    let webhook = await collection.deleteOne({ webhookId: webhookId });
-    return webhook;
+    const collection = db.collection("cw-webhooks");
+    let webhookDetails = await collection.findOne({ webhookId: webhookId });
+    if (!webhookDetails) {
+      return res.status(404).send("Webhook not found");
+    } else if (webhookDetails.email != req.body.email) {
+      return res.status(401).send("Unauthorized");
+    } else {
+      await collection.deleteOne({ webhookId: webhookId });
+      return `Webhook deleted successfully. ID: ${webhookId}`;
+    }
   } catch (error) {
     console.error("Error deleting webhook:", error);
     throw error;
@@ -325,7 +332,7 @@ app.get("/", async (req, res) => {
       await connectToDatabase("close");
     }
   }
-  res.send("Hello World!");
+  res.send("You have reached Cloudways!");
 });
 
 app.post("/webhook/add", async (req, res) => {
@@ -352,7 +359,6 @@ app.post("/webhook/add", async (req, res) => {
   }
 });
 
-// TODO: Add ownership validation to prevent unauthorized updates
 app.put("/webhook/:webhookId", async (req, res) => {
   if (req.body.secretKey != secretKey) {
     return res.status(401).send("Unauthorized");
@@ -365,9 +371,16 @@ app.put("/webhook/:webhookId", async (req, res) => {
     let webhookId = req.params.webhookId;
     let payload = req.body;
     const collection = db.collection("cw-webhooks");
-    await collection.updateOne({ webhookId: webhookId }, { $set: payload });
-    await logRequest(req, db, "update webhook");
-    res.status(200).send("Webhook updated successfully.");
+    const webhookDetails = await getWebhook(webhookId);
+    if (!webhookDetails) {
+      return res.status(404).send("Webhook not found");
+    } else if (webhookDetails.email != req.body.email) {
+      return res.status(401).send("Unauthorized");
+    } else {
+      await collection.updateOne({ webhookId: webhookId }, { $set: payload });
+      await logRequest(req, db, "update webhook");
+      res.status(200).send("Webhook updated successfully.");
+    }
   } catch (error) {
     console.error("Error updating webhook:", error);
     res.status(500).send("Internal Server Error");
@@ -378,12 +391,12 @@ app.put("/webhook/:webhookId", async (req, res) => {
   }
 });
 
-// TODO: Add ownership validation to prevent unauthorized deletions
 app.delete("/webhook/:webhookId", async (req, res) => {
   if (req.body.secretKey != secretKey) {
     return res.status(401).send("Unauthorized");
   }
-  return deleteWebhook(req.params.id);
+  const webhookDeleted = await deleteWebhook(req.params.webhookId, req);
+  return res.status(200).send(webhookDeleted);
 });
 
 app.post("/webhook/:webhookId/details", async (req, res) => {
@@ -392,7 +405,7 @@ app.post("/webhook/:webhookId/details", async (req, res) => {
   }
   try {
     const webhook = await getWebhook(req.params.webhookId);
-    if (webhook === "Webhook not found") {
+    if (webhook == "Webhook not found") {
       return res.status(404).send("Webhook not found");
     }
     return res.status(200).send(webhook);
