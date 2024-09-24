@@ -5,6 +5,7 @@ import { MongoClient } from "mongodb";
 import { ulid } from "ulid";
 import express from "express";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -13,10 +14,34 @@ let dbClient;
 const app = express();
 const port = process.env.PORT || 3000;
 const secretKey = process.env.SECRET_KEY;
+const apiSecret = process.env.API_SECRET;
 
 app.use(express.json());
 
 // Utility functions
+// Function to derive a key from a password and salt
+function deriveKey(apiSecret, salt) {
+  return crypto.scryptSync(apiSecret, Buffer.from(salt, 'base64'), 32);
+}
+
+// Function to decrypt the API key
+function decryptApiKey(encryptedData, key) {
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(encryptedData.nonce, 'base64')
+  );
+  decipher.setAuthTag(Buffer.from(encryptedData.tag, 'base64'));
+  let decrypted = decipher.update(encryptedData.ciphertext, 'base64', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+function getApiKey(apiKey) {
+  const key = deriveKey(apiSecret, apiKey.salt);
+  return decryptApiKey(apiKey, key);
+}
+
 async function connectToDatabase(op = "open") {
   const url = process.env.DATABASE_URL;
   const dbName = "cw-webhook-listener";
@@ -53,6 +78,7 @@ async function connectToDatabase(op = "open") {
 async function takeApplicationBackup(serverId, appId, apiKey, email) {
   const url = `https://api.cloudways.com/api/v1/app/manage/takeBackup?server_id=${serverId}&app_id=${appId}`;
   try {
+    apiKey = getApiKey(apiKey);
     const accessTokenResponse = await generateAccessToken(email, apiKey);
     const accessToken = await accessTokenResponse.json();
     const takeBackupResponse = await fetch(url, {
@@ -128,6 +154,7 @@ async function triggerGitPull(
   email,
   apiKey
 ) {
+  apiKey = getApiKey(apiKey);
   const url = `https://api.cloudways.com/api/v1/git/pull?server_id=${serverId}&app_id=${appId}&branch_name=${branchName}&deploy_path=${deployPath}`;
   try {
     const accessTokenResponse = await generateAccessToken(email, apiKey);
@@ -161,6 +188,7 @@ async function triggerSync(
   apiKey,
   action
 ) {
+  apiKey = getApiKey(apiKey);
   const url = `https://api.cloudways.com/api/v1/sync/app?server_id=${serverId}&app_id=${appId}&source_server_id=${stagingServerId}&source_app_id=${stagingAppId}&action=${action}`;
   try {
     const accessTokenResponse = await generateAccessToken(email, apiKey);
