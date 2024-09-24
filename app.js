@@ -21,19 +21,19 @@ app.use(express.json());
 // Utility functions
 // Function to derive a key from a password and salt
 function deriveKey(apiSecret, salt) {
-  return crypto.scryptSync(apiSecret, Buffer.from(salt, 'base64'), 32);
+  return crypto.scryptSync(apiSecret, Buffer.from(salt, "base64"), 32);
 }
 
 // Function to decrypt the API key
 function decryptApiKey(encryptedData, key) {
   const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
+    "aes-256-gcm",
     key,
-    Buffer.from(encryptedData.nonce, 'base64')
+    Buffer.from(encryptedData.nonce, "base64")
   );
-  decipher.setAuthTag(Buffer.from(encryptedData.tag, 'base64'));
-  let decrypted = decipher.update(encryptedData.ciphertext, 'base64', 'utf8');
-  decrypted += decipher.final('utf8');
+  decipher.setAuthTag(Buffer.from(encryptedData.tag, "base64"));
+  let decrypted = decipher.update(encryptedData.ciphertext, "base64", "utf8");
+  decrypted += decipher.final("utf8");
   return decrypted;
 }
 
@@ -84,8 +84,8 @@ async function takeApplicationBackup(serverId, appId, apiKey, email) {
     const takeBackupResponse = await fetch(url, {
       method: "POST",
       headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken.access_token}`, // Use the actual token value
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken.access_token}`, // Use the actual token value
       },
     });
 
@@ -127,8 +127,8 @@ async function takeApplicationBackup(serverId, appId, apiKey, email) {
   }
 }
 
-async function generateAccessToken(email, apiKey) {
-  const url = `https://api.cloudways.com/api/v1/oauth/access_token?email=${email}&api_key=${apiKey}`;
+async function generateAccessToken(email, plainApiKey) {
+  const url = `https://api.cloudways.com/api/v1/oauth/access_token?email=${email}&api_key=${plainApiKey}`;
   let accessToken;
   try {
     accessToken = await fetch(url, {
@@ -154,10 +154,11 @@ async function triggerGitPull(
   email,
   apiKey
 ) {
-  apiKey = getApiKey(apiKey);
+  // Decrypt the API key
+  const plainApiKey = getApiKey(apiKey);
   const url = `https://api.cloudways.com/api/v1/git/pull?server_id=${serverId}&app_id=${appId}&branch_name=${branchName}&deploy_path=${deployPath}`;
   try {
-    const accessTokenResponse = await generateAccessToken(email, apiKey);
+    const accessTokenResponse = await generateAccessToken(email, plainApiKey);
     const accessToken = await accessTokenResponse.json();
     const response = await fetch(url, {
       method: "POST",
@@ -188,10 +189,11 @@ async function triggerSync(
   apiKey,
   action
 ) {
-  apiKey = getApiKey(apiKey);
+  // Decrypt the API key
+  const plainApiKey = getApiKey(apiKey);
   const url = `https://api.cloudways.com/api/v1/sync/app?server_id=${serverId}&app_id=${appId}&source_server_id=${stagingServerId}&source_app_id=${stagingAppId}&action=${action}`;
   try {
-    const accessTokenResponse = await generateAccessToken(email, apiKey);
+    const accessTokenResponse = await generateAccessToken(email, plainApiKey);
     const accessToken = await accessTokenResponse.json();
     const response = await fetch(url, {
       method: "POST",
@@ -449,7 +451,7 @@ app.post("/webhook/:webhookId", async (req, res) => {
       default:
         return res.status(400).send("Invalid action type");
     }
-  
+
     await logRequest(req, db, `trigger ${record.type} action`);
     return res.status(200).send(result);
   } catch (error) {
