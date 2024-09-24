@@ -1,4 +1,3 @@
-// TODO: Implement data validation for incoming webhooks
 // TODO: Send an email everytime a webhook fails and deactivate the webhook after 3 times
 
 import { MongoClient } from "mongodb";
