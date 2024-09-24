@@ -16,11 +16,26 @@ const port = process.env.PORT || 3000;
 const secretKey = process.env.SECRET_KEY;
 const apiSecret = process.env.API_SECRET;
 
+if (!secretKey || !apiSecret) {
+  console.error(
+    "SECRET_KEY and API_SECRET must be set in environment variables."
+  );
+  process.exit(1);
+}
+
 app.use(express.json());
 
 // Utility functions
-// Function to derive a key from a password and salt
+/**
+ * Derives a key from a password and salt using scrypt.
+ * @param {string} apiSecret - The secret key.
+ * @param {string} salt - The salt value.
+ * @returns {Buffer} - The derived key.
+ */
 function deriveKey(apiSecret, salt) {
+  if (!apiSecret || !salt) {
+    throw new Error("apiSecret and salt are required to derive a key.");
+  }
   return crypto.scryptSync(apiSecret, Buffer.from(salt, "base64"), 32);
 }
 
